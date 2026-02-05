@@ -4,12 +4,13 @@ import re
 
 app = FastAPI()
 
+# ================= CONFIG =================
 API_KEY = "my_secret_key_123"
 
-# 🧠 Memory
+# ================= MEMORY =================
 sessions = {}
 
-# Request models
+# ================= MODELS =================
 class Message(BaseModel):
     sender: str
     text: str
@@ -18,23 +19,36 @@ class RequestBody(BaseModel):
     sessionId: str
     message: Message
 
-# Scam detection
+# ================= SCAM DETECTION =================
 def is_scam(message: str) -> bool:
-    keywords = ["account", "blocked", "urgent", "verify", "bank", "upi", "click", "otp"]
-    return any(word in message.lower() for word in keywords)
+    keywords = [
+        "account", "blocked", "urgent", "verify",
+        "bank", "upi", "click", "otp", "send money"
+    ]
+    msg = message.lower()
+    return any(word in msg for word in keywords)
 
-# Agent reply
-def agent_reply():
-    return "Why is my account being blocked?"
+# ================= SMART HONEYPOT REPLY =================
+def agent_reply(message: str) -> str:
+    msg = message.lower()
 
-# Intelligence extraction
+    if "upi" in msg or "send money" in msg or "transfer" in msg:
+        return "My bank app is not opening, which account should I send it to?"
+    elif "link" in msg or "click" in msg:
+        return "This link is not opening, can you send it again?"
+    elif "account" in msg or "blocked" in msg:
+        return "Why will my account be blocked? Please explain clearly."
+    else:
+        return "I don’t understand, can you explain this properly?"
+
+# ================= INTELLIGENCE EXTRACTION =================
 def extract_intelligence(text: str):
     return {
         "upi_ids": re.findall(r'\b[\w.-]+@upi\b', text),
         "phishing_links": re.findall(r'https?://\S+', text)
     }
 
-# API endpoint
+# ================= API ENDPOINT =================
 @app.post("/analyze")
 def analyze(
     data: RequestBody,
@@ -45,9 +59,10 @@ def analyze(
         raise HTTPException(status_code=401, detail="Invalid API Key")
 
     session_id = data.sessionId
-    message = data.message.text
+    message_text = data.message.text
     sender = data.message.sender
 
+    # Create session if new
     if session_id not in sessions:
         sessions[session_id] = {
             "history": [],
@@ -57,27 +72,31 @@ def analyze(
             }
         }
 
+    # Save incoming message
     sessions[session_id]["history"].append({
         "sender": sender,
-        "text": message
+        "text": message_text
     })
 
-    scam = is_scam(message)
+    scam_detected = is_scam(message_text)
     reply = None
 
-    if scam:
-        reply = agent_reply()
+    if scam_detected:
+        reply = agent_reply(message_text)
+
         sessions[session_id]["history"].append({
             "sender": "user",
             "text": reply
         })
 
-    extracted = extract_intelligence(message)
+    # Extract intelligence from scammer message
+    extracted = extract_intelligence(message_text)
     sessions[session_id]["intelligence"]["upi_ids"].extend(extracted["upi_ids"])
     sessions[session_id]["intelligence"]["phishing_links"].extend(extracted["phishing_links"])
 
     return {
         "status": "success",
+        "scam_detected": scam_detected,
         "reply": reply,
         "session_memory": sessions[session_id]
     }
