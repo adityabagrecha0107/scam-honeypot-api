@@ -23,7 +23,8 @@ class RequestBody(BaseModel):
 def is_scam(message: str) -> bool:
     keywords = [
         "account", "blocked", "urgent", "verify",
-        "bank", "upi", "click", "otp", "send money"
+        "bank", "upi", "click", "otp",
+        "locked", "fraud", "security", "breach"
     ]
     msg = message.lower()
     return any(word in msg for word in keywords)
@@ -32,20 +33,54 @@ def is_scam(message: str) -> bool:
 def agent_reply(message: str) -> str:
     msg = message.lower()
 
-    if "upi" in msg or "send money" in msg or "transfer" in msg:
-        return "My bank app is not opening, which account should I send it to?"
-    elif "link" in msg or "click" in msg:
-        return "This link is not opening, can you send it again?"
-    elif "account" in msg or "blocked" in msg:
-        return "Why will my account be blocked? Please explain clearly."
-    else:
-        return "I don’t understand, can you explain this properly?"
+    # OTP based scams
+    if "otp" in msg:
+        return (
+            "I received multiple OTP messages and I am confused. "
+            "Which exact OTP should I share and why?"
+        )
+
+    # Account blocked / locked threats
+    if "blocked" in msg or "locked" in msg:
+        return (
+            "This is very stressful. Can you hold the block for a few minutes "
+            "while I contact my bank manager?"
+        )
+
+    # Account number requests
+    if "account number" in msg:
+        return (
+            "This account number does not look familiar to me. "
+            "Can you tell me the bank branch or account type linked to it?"
+        )
+
+    # Security breach / fraud
+    if "security" in msg or "fraud" in msg or "breach" in msg:
+        return (
+            "Before I proceed, can you please confirm your employee ID "
+            "or department? I need this for my safety."
+        )
+
+    # Urgency pressure
+    if "urgent" in msg or "immediately" in msg or "minutes" in msg:
+        return (
+            "I have not tried logging in today. "
+            "Which device or location caused this issue?"
+        )
+
+    # Default confusion reply
+    return (
+        "I don’t understand this properly. "
+        "Can you explain why this is happening?"
+    )
 
 # ================= INTELLIGENCE EXTRACTION =================
 def extract_intelligence(text: str):
     return {
         "upi_ids": re.findall(r'\b[\w.-]+@upi\b', text),
-        "phishing_links": re.findall(r'https?://\S+', text)
+        "phishing_links": re.findall(r'https?://\S+', text),
+        "phone_numbers": re.findall(r'\+91-\d{10}', text),
+        "account_numbers": re.findall(r'\b\d{9,18}\b', text)
     }
 
 # ================= API ENDPOINT =================
@@ -68,7 +103,9 @@ def analyze(
             "history": [],
             "intelligence": {
                 "upi_ids": [],
-                "phishing_links": []
+                "phishing_links": [],
+                "phone_numbers": [],
+                "account_numbers": []
             }
         }
 
@@ -83,16 +120,15 @@ def analyze(
 
     if scam_detected:
         reply = agent_reply(message_text)
-
         sessions[session_id]["history"].append({
             "sender": "user",
             "text": reply
         })
 
-    # Extract intelligence from scammer message
+    # Extract intelligence
     extracted = extract_intelligence(message_text)
-    sessions[session_id]["intelligence"]["upi_ids"].extend(extracted["upi_ids"])
-    sessions[session_id]["intelligence"]["phishing_links"].extend(extracted["phishing_links"])
+    for key in extracted:
+        sessions[session_id]["intelligence"][key].extend(extracted[key])
 
     return {
         "status": "success",
